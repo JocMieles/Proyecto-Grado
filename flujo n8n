@@ -1,0 +1,676 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "id": "17bea3e4-7936-4e08-a063-2ff256284847",
+      "name": "Gmail PQRS",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        -336
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "RzraVWHISXKl7q7H",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $input.first().json.output;  // string con el JSON\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  const match = content.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : { raw: content };\n}\n\n// Si usas \"Keep source item\", aquí tienes nombre/correo/canal/asunto/mensaje:\nconst base = {\n  nombre:  $('Normalizar Informacion').first().json.nombre|| parsed.registro_pqrs?.nombre || null,\n  correo:$('Normalizar Informacion').first().json.correo|| parsed.registro_pqrs?.correo || null,\n  canal:  $('Normalizar Informacion').first().json.canal|| parsed.registro_pqrs?.canal || null,\n  asunto: $('Normalizar Informacion').first().json.asunto|| null,\n  mensaje:  $('Normalizar Informacion').first().json.mensaje|| null\n};\n\nlet estado = parsed.estado_pqrs;\n\n// Si el modelo no lo envió o viene vacío, ponemos uno por defecto\nif (!estado || typeof estado !== 'string' || !estado.trim()) {\n  // Regla de negocio: si hay datos_faltantes, es pendiente_datos,\n  // si no hay datos_faltantes, lo ponemos como \"nuevo\"\n  const faltantes = Array.isArray(parsed.datos_faltantes) ? parsed.datos_faltantes : [];\n  estado = faltantes.length > 0 ? 'pendiente_datos' : 'nuevo';\n  parsed.estado_pqrs = estado; // opcional, por si quieres usarlo más adelante\n}\n\nreturn [\n  {\n    json: {\n      fecha: new Date().toISOString(),\n      ...base,\n      tipo: parsed.tipo || null,\n      prioridad: parsed.prioridad || null,\n      area: parsed.area || null,\n      resumen: parsed.resumen || null,\n      respuesta: parsed.respuesta || parsed.raw || \"\",\n      palabras_clave: parsed.palabras_clave || [],\n      estado_pqrs: parsed.estado_pqrs || \"nuevo\",\n      datos_faltantes: parsed.datos_faltantes || [],\n      registro_pqrs: parsed.registro_pqrs || {}\n    }\n  }\n];"
+      },
+      "id": "c230de0e-db76-4a0a-a929-4b8da0bb9d95",
+      "name": "Procesar respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Datos de la PQRS del usuario:\n\nNombre: {{ $json[\"nombre\"] }}\nCorreo: {{ $json[\"correo\"] }}\nCanal: {{ $json[\"canal\"] }}\nAsunto: {{ $json.asunto }}\nMensaje: {{ $json.mensaje }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Eres un asistente experto en gestión de PQRS (Peticiones, Quejas, Reclamos, Solicitudes y Felicitaciones) para una empresa de servicios en Colombia.\n\nTienes acceso a una herramienta llamada \"pqrs\" que permite CONSULTAR y ACTUALIZAR el registro de PQRS en una hoja de cálculo. Siempre que atiendas una PQRS debes:\n\n1. Buscar en la tool \"pqrs\" si ya existe un caso para el correo del usuario.\n2. Si existe, leer su estado actual y la información almacenada.\n3. Actualizar el registro con la nueva información.\n4. Si no existe, crear un nuevo registro.\n\nSIEMPRE debes devolver UN ÚNICO OBJETO JSON VÁLIDO, sin texto adicional, sin comentarios y sin explicaciones. No escribas nada antes ni después del JSON.\n\nTareas:\n\n1. CLASIFICAR EL TIPO DE PQRS\n   Usa exactamente uno de estos valores (en minúscula):\n   - \"peticion\"\n   - \"queja\"\n   - \"reclamo\"\n   - \"solicitud\"\n   - \"felicitacion\"\n\n2. DEFINIR LA PRIORIDAD\n   Usa exactamente uno de estos valores:\n   - \"alta\": sin servicio, riesgo para el usuario, incumplimiento fuerte, reclamo reiterado, plazos legales próximos a vencerse.\n   - \"media\": afecta el servicio pero no es crítica, errores corregibles, demoras moderadas.\n   - \"baja\": solicitudes informativas, cambios no urgentes, dudas simples, felicitaciones.\n\n3. ASIGNAR ÁREA RESPONSABLE\n   Usa uno de estos valores:\n   - \"servicio_al_cliente\"\n   - \"facturacion\"\n   - \"soporte_tecnico\"\n   - \"comercial_ventas\"\n   - \"pqrs_general\"\n   - \"otra\"\n\n4. VALIDAR DATOS DEL USUARIO\n   Datos importantes cuando apliquen:\n   - nombre completo\n   - número de identificación (cédula)\n   - datos de contacto (correo o teléfono)\n   - para temas de medicamentos: tipo de medicamento, diagnóstico u orden médica, médico tratante y, si es posible, adjuntar copia de la fórmula u orden.\n\n   Si algún dato es claramente necesario y NO aparece en el mensaje, márcalo como faltante en el JSON y PÍDELO explícitamente en la respuesta al usuario.\n\n5. ESTADO DE LA PQRS\n   Maneja los siguientes estados:\n   - \"nuevo\": primera vez que se registra la PQRS.\n   - \"pendiente_datos\": faltan datos importantes del usuario.\n   - \"en_proceso\": el área responsable está gestionando la solicitud.\n   - \"resuelto\": se dio respuesta de fondo al caso, pero aún no se cierra.\n   - \"cerrado\": el caso se considera finalizado (por confirmación del usuario o vencimiento del tiempo).\n\n   Si la tool \"pqrs\" muestra un estado previo, úsalo como base y actualízalo según el nuevo mensaje:\n   - Si faltan datos, usa \"pendiente_datos\".\n   - Si ya hay datos completos y es la primera atención, usa \"nuevo\".\n   - Si el usuario escribe nuevamente sobre un caso \"nuevo\" o \"pendiente_datos\", mantén o ajusta el estado según la gestión.\n   - Si ya hubo gestión y se está trabajando, usa \"en_proceso\".\n   - Si el mensaje es una confirmación de solución, cambia a \"resuelto\" o \"cerrado\".\n\n6. GENERAR UN RESUMEN\n   Máximo 2–3 líneas, en tercera persona, explicando qué quiere o reporta el usuario.\n\n7. GENERAR UNA RESPUESTA INICIAL\n   - En español, tono respetuoso y empático.\n   - Agradece el contacto.\n   - Confirma que la PQRS fue recibida.\n   - Resume lo que se entendió.\n   - Si faltan datos, PÍDELOS de forma clara (por ejemplo: nombre completo, número de identificación, tipo de medicamento, copia de la orden, etc.).\n   - Indica que el caso será revisado por el área responsable.\n   - No prometas plazos específicos; usa frases tipo “en los tiempos establecidos por la normatividad vigente”.\n\n8. USO DE LA TOOL \"PQRS\"\n   Siempre que proceses una PQRS:\n   - Llama primero a la tool \"pqrs\" para BUSCAR por correo del usuario.\n   - Si existe un registro, úsalo para conocer el estado y número de caso.\n   - Luego ACTUALIZA o CREA un registro con:\n     correo, nombre, canal, fecha actual, tipo, prioridad, área, estado y resumen.\n\n9. FORMATO DE SALIDA\n   Debes responder SOLO este objeto JSON:\n\n   {\n     \"tipo\": \"...\",\n     \"prioridad\": \"...\",\n     \"area\": \"...\",\n     \"resumen\": \"...\",\n     \"respuesta\": \"...\",\n     \"palabras_clave\": [\"...\", \"...\"],\n     \"estado_pqrs\": \"...\",\n     \"datos_faltantes\": [\"...\", \"...\"],\n     \"registro_pqrs\": {\n       \"nombre\": \"...\",\n       \"correo\": \"...\",\n       \"canal\": \"...\",\n       \"fecha\": \"...\",\n       \"tipo\": \"...\",\n       \"prioridad\": \"...\",\n       \"area\": \"...\",\n       \"estado_pqrs\": \"...\"\n     }\n   }\n\n      Donde:\n   - \"estado_pqrs\": uno de [\"nuevo\", \"pendiente_datos\", \"en_proceso\", \"resuelto\", \"cerrado\"].\n     ESTE CAMPO ES OBLIGATORIO. Si no puedes determinar el estado exacto, usa:\n     - \"nuevo\" si es la primera vez que ves este correo sin historial.\n     - \"pendiente_datos\" si faltan datos importantes del usuario.\n     Nunca dejes \"estado_pqrs\" vacío, nulo o sin incluir en el JSON.\n\n   - \"datos_faltantes\": lista de datos que aún se necesitan (por ejemplo [\"cedula\", \"tipo_medicamento\", \"orden_medica\"]). \n     Si no falta nada, usa [].\n\n   Si no estás seguro de algún campo, igual debes poner un valor aproximado (por ejemplo \"pqrs_general\" o \"media\"), nunca lo dejes vacío."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        720,
+        -272
+      ],
+      "id": "bb840fcc-01dc-468b-a400-ff93a8ec53cb",
+      "name": "AI Agent",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "o3-mini",
+          "mode": "list",
+          "cachedResultName": "o3-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        16
+      ],
+      "id": "ad46e839-14ac-434c-b916-983bac296212",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "tPldrQQ8rWaTzZoH",
+          "name": "n8n agent whatsapp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.correo }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        16
+      ],
+      "id": "31f983ff-00a2-445e-8e96-52ed14fafac5",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Insert or Update row(s) in sheet in Google Sheets",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "=1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "correo": "={{ $json.correo }}",
+            "nombre": "={{ $json.nombre }}",
+            "fecha": "={{ $json.fecha }}",
+            "prioridad": "={{ $json.prioridad }}",
+            "tipo": "={{ $json.tipo }}",
+            "area": "={{ $json.area }}",
+            "estado_pqrs": "={{ $json.estado_pqrs }}",
+            "canal": "={{ $json.canal }}"
+          },
+          "matchingColumns": [
+            "correo"
+          ],
+          "schema": [
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "correo",
+              "displayName": "correo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tipo",
+              "displayName": "tipo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "prioridad",
+              "displayName": "prioridad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "area",
+              "displayName": "area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado_pqrs",
+              "displayName": "estado_pqrs",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "locationDefine": {
+            "values": {
+              "headerRow": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Header_Row', ``, 'number') }}",
+              "firstDataRow": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('First_Data_Row', ``, 'number') }}"
+            }
+          },
+          "useAppend": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.6,
+      "position": [
+        912,
+        16
+      ],
+      "id": "5bebb526-2ff4-40fd-b741-7c4950d98407",
+      "name": "pqrs",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "DFc1KHYe7mCcdNyt",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "84cac097-a47d-422c-8e14-b067d94a148f",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -544,
+        -16
+      ],
+      "id": "41ac9899-1848-4bfa-8267-1f357795e81d",
+      "name": "Webhook",
+      "webhookId": "84cac097-a47d-422c-8e14-b067d94a148f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "72051fbd-713a-482d-985e-92f0f588eb66",
+              "leftValue": "={{ $json.correo }}",
+              "rightValue": "={{ $json.origenCorreo }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        -192
+      ],
+      "id": "582be752-c958-42e1-a318-ef3f1ee21b52",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ejecutar una vez por item\n// Canal fijo: email\nconst canal = \"email\";\n\n// Tomamos el JSON del trigger de Gmail\nconst data = $input.first().json;\n\n// ------------------\n// 1. Extraer nombre y correo del campo \"From\"\n//    Ejemplos de From:\n//    \"Jose Mieles <josemieles16@gmail.com>\"\n//    \"josemieles16@gmail.com\"\n// ------------------\nlet nombre = \"\";\nlet correo = \"\";\n\nif (data.From) {\n  const from = data.From;\n\n  const match = from.match(/^(.*)<(.*)>/);\n  if (match) {\n    // \"Nombre Apellido <correo@dominio>\"\n    nombre = match[1].trim();\n    correo = match[2].replace(/[<>]/g, \"\").trim();\n  } else {\n    // Solo correo sin nombre\n    correo = from.trim();\n    // Como nombre usamos la parte antes de la @\n    nombre = correo.split(\"@\")[0];\n  }\n}\n\n// ------------------\n// 2. Asunto y mensaje\n// ------------------\nconst asunto  = data.Subject || \"\";\n// Usamos el snippet como mensaje corto del correo\nconst mensaje = data.snippet || \"\";\n\n// ------------------\n// 3. Origen del correo (a qué buzón llegó)\n// ------------------\nconst origenCorreo = data.To || \"\";  // antes usabas body[0].To\n\n// ------------------\n// 4. Construimos el objeto normalizado\n// ------------------\nreturn [\n  {\n    json: {\n      nombre,\n      correo,\n      canal,          // \"email\"\n      asunto,\n      mensaje,\n      origenCorreo\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -288
+      ],
+      "id": "0b36a134-7cb1-4b12-834b-438a81f124b4",
+      "name": "Normalizar Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Tomamos los campos principales del correo que devuelve el Gmail Trigger\nconst original = $input.first().json.body[0];\n\n// 'From' viene algo así como:  Nombre Apellido <correo@dominio.com>\nconst from = original.From || original.from || \"\";\nlet nombre = \"\";\nlet correo = \"\";\n\n// Intentar separar \"Nombre\" y \"correo\" con una expresión regular\nconst match = from.match(/^(.*?)(<(.+?)>)?$/);\n\nif (match) {\n  const posibleNombre = (match[1] || \"\").replace(/\"/g, \"\").trim();\n  const posibleCorreo = (match[3] || \"\").trim();\n\n  if (posibleCorreo) {\n    correo = posibleCorreo;\n    nombre = posibleNombre || posibleCorreo.split(\"@\")[0];\n  } else {\n    // Si no trae <correo>, usamos todo como correo y sacamos nombre de lo que haya antes de @\n    correo = from.trim();\n    nombre = correo.split(\"@\")[0];\n  }\n} else {\n  correo = from || \"sin_correo\";\n  nombre = \"Usuario\";\n}\n\n// Asunto: en tu salida aparece como \"Subject\"\nconst asunto = original.Subject || original.subject || \"\";\n\n// Mensaje: para simplificar, usamos 'snippet' (previsualización de Gmail)\nconst mensaje = original.snippet || \"\";\n\n// Canal fijo: email\nconst canal = \"email\";\n\nconst origenCorreo = $input.first().json.body[0].To;\n\n// Construimos el objeto normalizado\nreturn [\n  {\n    json: {\n      nombre,\n      correo,\n      canal,\n      asunto,\n      mensaje,\n      origenCorreo\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -32
+      ],
+      "id": "fb0c311d-509e-423c-a8b1-cf0db83de3fa",
+      "name": "Normalizar Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const nombre = $('If').first().json.nombre\nconst correo = $('If').first().json.correo\nconst canal = $('If').first().json.canal\nconst asunto = $('If').first().json.asunto\nconst mensaje =$('If').first().json.mensaje\nconst origenCorreo = $('If').first().json.origenCorreo\n  return [\n  {\n    json: {\n    nombre ,\n      correo,\n      canal,\n      asunto,\n      mensaje,\n      origenCorreo\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        -400
+      ],
+      "id": "2934df0a-51a9-4dfd-a792-079a4da6d2ad",
+      "name": "Normalizar Informacion"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "correo",
+              "lookupValue": "={{ $json.correo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        -224
+      ],
+      "id": "c840e13b-44cb-488d-ba1b-f541cbf76fbf",
+      "name": "Obtener informacion",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "DFc1KHYe7mCcdNyt",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1-zlz9PgzIlXC-JqP7VD7AHPMru9zIxCAKOYLDzH4IJI/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "correo": "={{ $json.registro_pqrs.correo }}",
+            "nombre": "={{ $json.registro_pqrs.nombre }}",
+            "canal": "={{ $json.registro_pqrs.canal }}",
+            "fecha": "={{ $json.registro_pqrs.fecha }}",
+            "tipo": "={{ $json.registro_pqrs.tipo }}",
+            "prioridad": "={{ $json.registro_pqrs.prioridad }}",
+            "area": "={{ $json.registro_pqrs.area }}",
+            "estado_pqrs": "={{ $json.registro_pqrs.estado_pqrs }}"
+          },
+          "matchingColumns": [
+            "correo"
+          ],
+          "schema": [
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "correo",
+              "displayName": "correo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tipo",
+              "displayName": "tipo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prioridad",
+              "displayName": "prioridad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "area",
+              "displayName": "area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "estado_pqrs",
+              "displayName": "estado_pqrs",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1392,
+        -16
+      ],
+      "id": "5564aeef-b5b6-49b4-b4cb-830d3765b452",
+      "name": "Guardar informacion",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "DFc1KHYe7mCcdNyt",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.correo }}",
+        "subject": "={{ $json.asunto }}",
+        "message": "={{ $json.respuesta }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1552,
+        -320
+      ],
+      "id": "76e48b4f-c73d-455d-9f24-e3be0575a220",
+      "name": "Enviar Correo",
+      "webhookId": "d2e9e611-a63f-403e-bdfd-6d35ccfc9196",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "RzraVWHISXKl7q7H",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail PQRS": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Guardar informacion",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar Correo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Procesar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pqrs": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Obtener informacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Email": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Informacion": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener informacion": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Informacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar informacion": {
+      "main": [
+        []
+      ]
+    },
+    "Enviar Correo": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b1da0203adbf2e459a8a906d03f09d9a1055c5bc81a8f3d64870c876557b5d8d"
+  }
+}
