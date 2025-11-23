@@ -6,8 +6,8 @@ Este proyecto implementa un prototipo de automatización de PQRS (Peticiones, Qu
 
 El flujo permite:
 - Recibir PQRS desde:
-	  - Correos electrónicos (nodo Gmail PQRS, tipo Gmail Trigger).
-	  - Un Webhook (por ejemplo, formularios web o pruebas con Postman).
+	- Correos electrónicos (nodo Gmail PQRS, tipo Gmail Trigger).
+	- Un Webhook (por ejemplo, formularios web o pruebas con Postman).
 - Normalizar los datos de entrada (nombre, correo, canal, asunto, mensaje).
 - Consultar el historial de PQRS del usuario en una hoja de cálculo.
 - Usar un AI Agent para:
@@ -39,7 +39,7 @@ A nivel general, el flujo en n8n sigue estos pasos (usando los nombres reales de
 	- **Obtener informacion** (read sheet): consulta en Google Sheets si ya existe una PQRS previa para ese correo y devuelve, por ejemplo, el estado anterior del caso y otros datos asociados.
 
 4.	**Preparación para el agente de IA**
-	- **Normalizar Informacion1: combina la información del mensaje (nombre, correo, canal, asunto, mensaje) con los datos que vienen de la hoja (estado previo, fechas, etc.) y construye un único objeto JSON que será la entrada del AI Agent.
+	- **Normalizar Informacion**: combina la información del mensaje (nombre, correo, canal, asunto, mensaje) con los datos que vienen de la hoja (estado previo, fechas, etc.) y construye un único objeto JSON que será la entrada del AI Agent.
 
 5.	**Agente de IA**
 	- **AI Agent**:
