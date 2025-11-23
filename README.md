@@ -114,6 +114,28 @@ A nivel general, el flujo en n8n sigue estos pasos (usando los nombres reales de
 	- Postman u otra herramienta para enviar solicitudes al nodo Webhook.
 	- Cuenta de correo de prueba para simular PQRS de usuarios.
 
+## Ejemplo del json del consumo del Webhook mediante API
+
+```json
+[{
+    "id": "msg-51",
+    "threadId": "th-51",
+    "snippet": "identificacion: 100000051 medicamento: metformina diagnostico: diabetes orden medica: 20000051 medico: Laura Gómez motivo: felicitacion por atención del personal en ventanilla y claridad en la explicación",
+    "payload": { "mimeType": "multipart/alternative" },
+    "sizeEstimate": 7950,
+    "historyId": "7051",
+    "internalDate": "1763840249000",
+    "labels": [
+      { "id": "INBOX", "name": "INBOX" },
+      { "id": "CATEGORY_PERSONAL", "name": "CATEGORY_PERSONAL" },
+      { "id": "UNREAD", "name": "UNREAD" }
+    ],
+    "From": "Sara Romero <sara.romero@example.com>",
+    "Subject": "PQRS: felicitación por atención en ventanilla",
+    "To": "pruebaspruebasmieles@gmail.com"
+  }]
+```
+
 ## Ejemplo de entrada al AI Agent
 
 ```json
